@@ -1,0 +1,33 @@
+{
+  "name": "EU with Mojtaba",
+  "short_name": "EU Mojtaba",
+  "description": "Révision questions européennes SAEO 2026 - Gamifié avec XP, badges et streaks",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "lang": "fr",
+  "categories": ["education", "games"],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot.png",
+      "sizes": "390x844",
+      "type": "image/png"
+    }
+  ]
+}
