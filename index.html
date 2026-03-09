@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>EU with Mojtaba</title>
+  <meta name="application-name" content="EU with Mojtaba"/>
+  <meta name="theme-color" content="#0f172a"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="EU Mojtaba"/>
+  <link rel="manifest" href="manifest.json"/>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{height:100%;background:#0f172a}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#fff}
+    #root{height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    input{font-family:inherit}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+    @keyframes badgeIn{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
+    @keyframes glow{0%,100%{box-shadow:0 8px 32px #6366f166}50%{box-shadow:0 8px 48px #6366f1bb,0 0 80px #a78bfa33}}
+    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, query, orderBy, limit, getDocs, increment, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ─── FIREBASE CONFIG ────────────────────────────────────────────────────────
+// ⚠️ REMPLACE CES VALEURS par ta config Firebase (voir README.md)
+const firebaseConfig = {
+  apiKey: "REMPLACE_PAR_TA_CLE",
+  authDomain: "REMPLACE.firebaseapp.com",
+  projectId: "REMPLACE_PAR_TON_PROJECT_ID",
+  storageBucket: "REMPLACE.appspot.com",
+  messagingSenderId: "REMPLACE",
+  appId: "REMPLACE"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Expose globally for React
+window.__firebase = { auth, db, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, doc, setDoc, getDoc, updateDoc, collection, query, orderBy, limit, getDocs, increment, arrayUnion, serverTimestamp };
+window.__firebaseReady = true;
+window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback} = React;
+
+// ── CONSTANTS ────────────────────────────────────────────────────────────────
+const XP_OK = 50;
+const TIMER = 20;
+
+const LEVELS = [
+  {min:0,   title:"Stagiaire UE",  emoji:"🐣"},
+  {min:500,  title:"Attaché junior",emoji:"📋"},
+  {min:1200, title:"Conseiller",    emoji:"💼"},
+  {min:2500, title:"Diplomat",      emoji:"🎩"},
+  {min:5000, title:"Expert SAEO",   emoji:"🏛️"},
+  {min:9000, title:"Ambassadeur UE",emoji:"🌟"},
+];
+
+const BADGES = [
+  {id:"first", emoji:"🎯",name:"Premier Pas",     desc:"1ère bonne réponse",     check:d=>d.totalCorrect>=1},
+  {id:"s3",    emoji:"🔥",name:"En Feu",           desc:"3 jours de suite",       check:d=>d.streak>=3},
+  {id:"s7",    emoji:"⚡",name:"Semaine Parfaite", desc:"7 jours de suite",       check:d=>d.streak>=7},
+  {id:"x500",  emoji:"🥉",name:"Bronze UE",        desc:"500 XP",                 check:d=>d.xp>=500},
+  {id:"x2000", emoji:"🥈",name:"Argent UE",        desc:"2000 XP",                check:d=>d.xp>=2000},
+  {id:"x5000", emoji:"🥇",name:"Or UE",            desc:"5000 XP",                check:d=>d.xp>=5000},
+  {id:"c50",   emoji:"🧠",name:"Cerveau Européen", desc:"50 bonnes réponses",     check:d=>d.totalCorrect>=50},
+  {id:"c200",  emoji:"🎓",name:"Docteur UE",       desc:"200 bonnes réponses",    check:d=>d.totalCorrect>=200},
+  {id:"speed", emoji:"⚡",name:"Speed Runner",     desc:"Répondre en moins de 5s",check:d=>d.hasSpeed},
+];
+
+const THEMES = [
+  {id:"histoire",  label:"Histoire & Construction",emoji:"🏛️",color:"#6366f1",bg:"#1e1b4b",actu:false},
+  {id:"instit",    label:"Institutions",            emoji:"⚖️",color:"#3b82f6",bg:"#1e3a5f",actu:false},
+  {id:"marche",    label:"Marché & Droit",           emoji:"🏪",color:"#06b6d4",bg:"#0c4a6e",actu:false},
+  {id:"budget",    label:"Budget & Économie",        emoji:"💶",color:"#10b981",bg:"#064e3b",actu:false},
+  {id:"politique", label:"Politiques Communes",      emoji:"🌾",color:"#f59e0b",bg:"#451a03",actu:false},
+  {id:"securite",  label:"Sécurité & PESC",          emoji:"🛡️",color:"#ef4444",bg:"#450a0a",actu:false},
+  {id:"schengen",  label:"Immigration & Schengen",   emoji:"🛂",color:"#a855f7",bg:"#2e1065",actu:false},
+  {id:"relations", label:"Relations Extérieures",    emoji:"🌍",color:"#14b8a6",bg:"#042f2e",actu:false},
+  {id:"defense",   label:"Europe de la Défense",     emoji:"🪖",color:"#f43f5e",bg:"#4c0519",actu:true},
+  {id:"commerce",  label:"Droits de Douane",         emoji:"📦",color:"#fb923c",bg:"#431407",actu:true},
+  {id:"compet",    label:"Compétitivité",             emoji:"🏭",color:"#84cc16",bg:"#1a2e05",actu:true},
+  {id:"numerique", label:"Numérique & IA",            emoji:"💻",color:"#818cf8",bg:"#1e1b4b",actu:true},
+  {id:"energie",   label:"Énergie & Climat",          emoji:"🌿",color:"#34d399",bg:"#022c22",actu:true},
+  {id:"geo",       label:"Géopolitique",              emoji:"🗺️",color:"#fbbf24",bg:"#1c1407",actu:true},
+];
+
+const BANK = [
+  {t:"histoire",q:"Quel traité a institué la CECA en 1951 ?",c:["Traité de Rome","Traité de Paris","Traité de Bruxelles","Traité de La Haye"],a:[1],m:false,e:"Le traité de Paris (18 avril 1951) a créé la CECA à l'initiative de Schuman et Monnet."},
+  {t:"histoire",q:"En quelle année le traité de Maastricht est-il entré en vigueur ?",c:["1990","1992","1993","1995"],a:[2],m:false,e:"Signé le 7 février 1992, il est entré en vigueur le 1er novembre 1993, créant officiellement l'UE."},
+  {t:"histoire",q:"Quels pays ont rejeté par référendum le traité constitutionnel en 2005 ?",c:["France et Allemagne","France et Pays-Bas","France et Belgique","Pays-Bas et Irlande"],a:[1],m:false,e:"La France (54,7% non) puis les Pays-Bas (61,5% non) ont rejeté la Constitution européenne."},
+  {t:"histoire",q:"Quel traité a remplacé le projet de Constitution européenne ?",c:["Traité de Nice","Traité d'Amsterdam","Traité de Lisbonne","Traité de Barcelone"],a:[2],m:false,e:"Le traité de Lisbonne (signé 2007, en vigueur 2009) a repris les principales réformes institutionnelles."},
+  {t:"histoire",q:"En quelle année l'Acte unique européen a-t-il été signé ?",c:["1982","1984","1986","1988"],a:[2],m:false,e:"L'Acte unique européen (1986) fixait l'objectif d'un marché unique pour le 1er janvier 1993."},
+  {t:"histoire",q:"En quelle année le Royaume-Uni a-t-il officiellement quitté l'UE ?",c:["2019","2020","2021","2022"],a:[1],m:false,e:"Le Brexit a pris effet le 31 janvier 2020. La période de transition s'est terminée le 31 décembre 2020."},
+  {t:"histoire",q:"Quels sont les six États fondateurs de la CECA (1951) ?",c:["France, Allemagne, Italie, Belgique, Pays-Bas, Luxembourg","France, Allemagne, Italie, Espagne, Belgique, Pays-Bas","France, Allemagne, Autriche, Belgique, Pays-Bas, Luxembourg","France, Allemagne, Italie, Belgique, Danemark, Luxembourg"],a:[0],m:false,e:"Les 6 fondateurs : France, Allemagne de l'Ouest, Italie, Belgique, Pays-Bas et Luxembourg."},
+  {t:"histoire",q:"Quel est l'objet du traité de l'Élysée de 1963 ?",c:["Créer le marché commun","Renforcer la coopération franco-allemande","Établir la PAC","Créer une zone de libre-échange"],a:[1],m:false,e:"Le traité de l'Élysée (22 janvier 1963) symbolise la réconciliation franco-allemande."},
+  {t:"histoire",q:"En quelle année a eu lieu la première élection du PE au suffrage universel direct ?",c:["1974","1977","1979","1981"],a:[2],m:false,e:"La première élection du Parlement européen au suffrage universel direct a eu lieu en juin 1979."},
+  {t:"histoire",q:"Le plan Pleven (1950) visait à créer :",c:["Un marché commun agricole","Une armée européenne intégrée (CED)","L'aide Marshall","Une banque européenne"],a:[1],m:false,e:"Le plan Pleven proposait la CED. Ce projet a été rejeté par l'Assemblée nationale française en 1954."},
+  {t:"histoire",q:"Combien d'États membres l'UE comptait-elle avant le grand élargissement de mai 2004 ?",c:["12","15","18","20"],a:[1],m:false,e:"L'UE comptait 15 membres avant le 1er mai 2004, date à laquelle 10 nouveaux États ont adhéré."},
+  {t:"histoire",q:"Le Conseil européen de Fontainebleau (1984) a résolu :",c:["Le lancement de l'euro","Le 'chèque britannique' (rabais UK)","La signature de l'Acte unique","La création de Schengen"],a:[1],m:false,e:"Fontainebleau (1984) a résolu la question du rabais britannique sur la contribution au budget européen."},
+  {t:"instit",q:"Qui préside la Commission européenne depuis 2019 ?",c:["Jean-Claude Juncker","Mario Draghi","Ursula von der Leyen","Charles Michel"],a:[2],m:false,e:"Ursula von der Leyen (Allemagne, CDU) préside la Commission depuis le 1er décembre 2019, reconduite en 2024."},
+  {t:"instit",q:"Combien de commissaires compte la Commission européenne ?",c:["20","25","27","30"],a:[2],m:false,e:"Depuis Lisbonne, chaque État membre a un commissaire. La Commission compte 27 membres."},
+  {t:"instit",q:"Combien de députés compte le Parlement européen après juin 2024 ?",c:["705","720","751","786"],a:[1],m:false,e:"Suite aux élections de juin 2024, le Parlement européen compte 720 députés."},
+  {t:"instit",q:"Qui préside le Conseil européen depuis décembre 2024 ?",c:["Charles Michel","Donald Tusk","António Costa","Mark Rutte"],a:[2],m:false,e:"António Costa préside le Conseil européen depuis le 1er décembre 2024."},
+  {t:"instit",q:"Qu'est-ce que la majorité qualifiée au Conseil de l'UE ?",c:["50%+1 des États","55% des États représentant 65% de la population","Les 2/3 des États","Unanimité moins un État"],a:[1],m:false,e:"Depuis Lisbonne : 55% des États membres (min. 15) représentant 65% de la population de l'UE."},
+  {t:"instit",q:"Quel groupe politique est arrivé en tête aux élections européennes de juin 2024 ?",c:["Les Verts","Renew Europe","PPE","S&D"],a:[2],m:false,e:"Le PPE est resté le premier groupe du Parlement européen avec environ 188 sièges."},
+  {t:"instit",q:"Qu'est-ce que le COREPER II ?",c:["Un comité de gestion de la PAC","Le comité des ambassadeurs pour les dossiers politiques importants","Une formation du PE","Un organe de la CJUE"],a:[1],m:false,e:"COREPER II est composé des ambassadeurs. Il prépare les travaux du Conseil sur les dossiers politiques sensibles."},
+  {t:"instit",q:"Comment fonctionne le mécanisme des Spitzenkandidaten ?",c:["Le PE désigne directement le président de la Commission","Le Conseil européen est censé proposer la tête de liste du parti arrivé en tête","La Commission élit son propre président","Les États votent à l'unanimité"],a:[1],m:false,e:"Ce dispositif prévoit que le Conseil européen propose la tête de liste du parti arrivé en tête aux élections européennes."},
+  {t:"instit",q:"Quelle institution siège à Luxembourg ?",c:["La Commission européenne","Le Parlement européen","La CJUE","La BCE"],a:[2],m:false,e:"La CJUE siège à Luxembourg. La Commission est à Bruxelles, le Parlement à Strasbourg, la BCE à Francfort."},
+  {t:"instit",q:"Qui est Haute représentante de l'UE pour les affaires étrangères depuis décembre 2024 ?",c:["Josep Borrell","Federica Mogherini","Kaja Kallas","Catherine Ashton"],a:[2],m:false,e:"Kaja Kallas (ancienne Première ministre estonienne) est Haute représentante depuis décembre 2024."},
+  {t:"marche",q:"Quelles sont les quatre libertés fondamentales du marché intérieur ?",c:["Biens, services, capitaux, personnes","Biens, monnaies, travailleurs, services","Libre-échange, concurrence, investissement, libre-service","Entreprise, commerce, travail, résidence"],a:[0],m:false,e:"Le marché intérieur repose sur la libre circulation des marchandises, des personnes, des services et des capitaux."},
+  {t:"marche",q:"Quel principe affirme que le droit de l'UE prime sur le droit national ?",c:["Principe de subsidiarité","Principe de primauté","Principe de proportionnalité","Principe d'effet direct"],a:[1],m:false,e:"Le principe de primauté (arrêt Costa c. ENEL, 1964) : le droit de l'UE prévaut sur toute norme nationale contraire."},
+  {t:"marche",q:"Qu'a consacré l'arrêt Cassis de Dijon (1979) ?",c:["L'effet direct","La primauté du droit communautaire","La reconnaissance mutuelle des législations nationales","L'interdiction des monopoles d'État"],a:[2],m:false,e:"Cassis de Dijon (1979) : un produit légalement fabriqué dans un État membre peut être commercialisé dans tous les autres."},
+  {t:"marche",q:"En quelle année le marché unique est-il officiellement entré en vigueur ?",c:["1986","1990","1993","1995"],a:[2],m:false,e:"Le marché unique est entré en vigueur le 1er janvier 1993, conformément à l'Acte unique européen de 1986."},
+  {t:"marche",q:"L'arrêt Van Gend en Loos (1963) a établi :",c:["La primauté du droit communautaire","L'effet direct du droit communautaire","La responsabilité des États","La compétence exclusive de la CJCE"],a:[1],m:false,e:"Van Gend en Loos (1963) : les particuliers peuvent invoquer directement le droit communautaire devant les juridictions nationales."},
+  {t:"marche",q:"Qu'est-ce que le principe de subsidiarité ?",c:["L'UE agit toujours à la place des États","L'UE n'agit que si les objectifs ne peuvent être mieux atteints au niveau national","Les États peuvent ignorer les directives","Les régions ont priorité sur les États"],a:[1],m:false,e:"Subsidiarité (art. 5 TUE) : l'UE n'intervient que si l'action supranationale est plus efficace."},
+  {t:"budget",q:"Quel est le montant du CFP 2021-2027 ?",c:["500 Md€","750 Md€","1 074 Md€","1 500 Md€"],a:[2],m:false,e:"Le CFP 2021-2027 s'élève à 1 074 milliards €, auquel s'ajoute NextGenerationEU (750 Md€)."},
+  {t:"budget",q:"Quel est le montant du plan de relance NextGenerationEU ?",c:["300 Md€","500 Md€","750 Md€","1 000 Md€"],a:[2],m:false,e:"NextGenerationEU est doté de 750 milliards € : 390 Md€ de subventions et 360 Md€ de prêts."},
+  {t:"budget",q:"Quelle est la principale source de recettes du budget européen ?",c:["Droits de douane","Ressource RNB des États","TVA européenne","Amendes aux entreprises"],a:[1],m:false,e:"La ressource RNB représente environ 70% des recettes budgétaires de l'UE."},
+  {t:"budget",q:"Que prévoit la règle d'or du TSCG (2012) ?",c:["Limiter le déficit courant à 3% du PIB","Limiter le déficit structurel à 0,5% du PIB","Interdire tout déficit","Limiter la dette à 60% du PIB"],a:[1],m:false,e:"Le TSCG impose que le déficit structurel ne dépasse pas 0,5% du PIB."},
+  {t:"budget",q:"Quel est l'objectif principal de la BCE ?",c:["Financer les États membres","Maintenir la stabilité des prix (inflation proche de 2%)","Coordonner les politiques fiscales","Réguler les banques commerciales"],a:[1],m:false,e:"L'objectif premier de la BCE est la stabilité des prix, définie comme une inflation proche de 2% à moyen terme."},
+  {t:"politique",q:"Sur quels deux piliers repose la PAC actuelle ?",c:["Aides directes et développement rural","Production alimentaire et exportations","Subventions à l'élevage et aux céréales","Prix garantis et quotas"],a:[0],m:false,e:"PAC : 1er pilier (paiements directs et mesures de marché) et 2e pilier (développement rural)."},
+  {t:"politique",q:"Quel est l'objectif du Pacte vert européen (European Green Deal) ?",c:["Neutralité carbone d'ici 2040","Neutralité carbone d'ici 2050","Fin du nucléaire d'ici 2035","Réduction de 40% d'ici 2030"],a:[1],m:false,e:"Le Pacte vert (2019) vise la neutralité climatique de l'UE d'ici 2050."},
+  {t:"politique",q:"Que vise le paquet 'Fit for 55' ?",c:["Réduire les émissions de 40% vs 1990 d'ici 2030","Réduire les émissions d'au moins 55% vs 1990 d'ici 2030","Neutralité carbone d'ici 2035","55 États membres dans l'UE"],a:[1],m:false,e:"Fit for 55 (2021) vise à réduire les émissions de GES d'au moins 55% d'ici 2030 vs 1990."},
+  {t:"politique",q:"Quel est le premier bénéficiaire de la PAC ?",c:["Italie","France","Espagne","Allemagne"],a:[1],m:false,e:"La France est historiquement le premier bénéficiaire de la PAC, suivie de l'Espagne et de l'Allemagne."},
+  {t:"securite",q:"Dans quel domaine le Conseil vote-t-il encore à l'unanimité ?",c:["Le marché intérieur","La PESC","La politique agricole","La politique commerciale"],a:[1],m:false,e:"La PESC reste intergouvernementale : l'unanimité s'applique, donnant un droit de veto à chaque État."},
+  {t:"securite",q:"Qu'est-ce que la PESCO ?",c:["La politique de sécurité civile","La Coopération structurée permanente en matière de défense","Le Partenariat euro-méditerranéen","La politique spatiale"],a:[1],m:false,e:"PESCO (2017) : coopération défense entre 25 États membres pour développer des capacités militaires conjointes."},
+  {t:"securite",q:"Qu'est-ce que la FEP ?",c:["Un fonds d'aide humanitaire","Un instrument finançant les actions militaires et l'envoi d'armes à des pays tiers","Un programme de reconstruction","Un mécanisme de sanctions"],a:[1],m:false,e:"La FEP finance des actions militaires et livraisons d'armes à des pays tiers (notamment l'Ukraine)."},
+  {t:"securite",q:"Quel État de l'UE a le plus récemment rejoint l'OTAN ?",c:["Finlande","Suède","Slovénie","Lituanie"],a:[1],m:false,e:"La Suède est devenue le 32e membre de l'OTAN en mars 2024. La Finlande l'avait rejointe en avril 2023."},
+  {t:"schengen",q:"Combien de pays font partie de l'espace Schengen en 2024 ?",c:["22","25","29","31"],a:[2],m:false,e:"L'espace Schengen compte 29 membres depuis l'entrée de la Bulgarie et la Roumanie en 2024."},
+  {t:"schengen",q:"En quelle année les accords de Schengen ont-ils été signés ?",c:["1980","1983","1985","1990"],a:[2],m:false,e:"Les accords de Schengen ont été signés le 14 juin 1985 entre 5 pays fondateurs."},
+  {t:"schengen",q:"Qu'est-ce que le règlement de Dublin ?",c:["Un accord de libre-échange","La règle selon laquelle le premier pays d'entrée est responsable d'une demande d'asile","Un accord de répartition obligatoire","Un traité sur les visas"],a:[1],m:false,e:"Dublin III détermine quel État est responsable d'une demande d'asile — en principe le premier pays d'entrée dans l'UE."},
+  {t:"schengen",q:"Qu'est-ce que Frontex ?",c:["L'agence européenne de l'asile","L'agence européenne de garde-frontières et de garde-côtes","L'agence Europol","Un outil de surveillance"],a:[1],m:false,e:"Frontex est l'Agence européenne de garde-frontières et de garde-côtes, créée en 2004. Son siège est à Varsovie."},
+  {t:"relations",q:"Quels sont les critères de Copenhague pour l'adhésion à l'UE ?",c:["Critères géographiques, économiques et militaires","Critères politiques (démocratie, État de droit), économiques et capacité à assumer l'acquis","Critères de population, PIB et géographie","Critères linguistiques, culturels et historiques"],a:[1],m:false,e:"Copenhague (1993) : institutions démocratiques, économie de marché viable, capacité à assumer l'acquis communautaire."},
+  {t:"relations",q:"Combien de pays sont officiellement candidats à l'UE en 2025 ?",c:["7","8","9","10"],a:[2],m:false,e:"En 2025, 9 pays sont candidats officiels : Ukraine, Moldavie, Albanie, Macédoine du Nord, Monténégro, Serbie, Bosnie, Géorgie et Türkiye."},
+  {t:"relations",q:"Qu'est-ce que la Communauté politique européenne (CPE) ?",c:["Une institution de l'UE","Un forum de coordination politique entre 47 États européens","Une organisation militaire","Un marché commun élargi"],a:[1],m:false,e:"La CPE (2022) réunit 47 États européens pour une coordination politique informelle sur la sécurité et la stabilité."},
+  {t:"relations",q:"Quand les négociations ont-elles été ouvertes avec l'Ukraine et la Moldavie ?",c:["Décembre 2023","Mars 2024","Juin 2024","Septembre 2024"],a:[2],m:false,e:"La Conférence d'ouverture des négociations avec l'Ukraine et la Moldavie s'est tenue le 25 juin 2024."},
+  {t:"defense",q:"Quel est le montant du programme SAFE annoncé en mars 2025 ?",c:["50 Md€","100 Md€","150 Md€","300 Md€"],a:[2],m:false,e:"SAFE (Security Action for Europe, mars 2025) : 150 milliards € de prêts pour des acquisitions militaires conjointes."},
+  {t:"defense",q:"Quel est le budget du Fonds européen de défense (FED) 2021-2027 ?",c:["2 Md€","5 Md€","8 Md€","15 Md€"],a:[2],m:false,e:"Le FED est doté de 8 milliards € sur 2021-2027 pour la recherche et le développement des capacités de défense."},
+  {t:"defense",q:"Quel est l'objet de l'opération EUNAVFOR Aspides lancée en 2024 ?",c:["Anti-piraterie en Somalie","Protection de la navigation en mer Rouge face aux Houthis","Mission de formation en Ukraine","Surveillance des frontières méditerranéennes"],a:[1],m:false,e:"EUNAVFOR Aspides (février 2024) protège la navigation en mer Rouge face aux attaques des Houthis du Yémen."},
+  {t:"defense",q:"Qu'est-ce que la Boussole stratégique européenne adoptée en 2022 ?",c:["Un traité de défense collective","Le document de doctrine stratégique de l'UE pour la défense","Un programme d'achats militaires","Un accord avec l'OTAN"],a:[1],m:false,e:"La Boussole stratégique (mars 2022) est le document d'orientation stratégique de l'UE en matière de défense pour 2030."},
+  {t:"commerce",q:"Quels droits de douane Trump a-t-il imposés sur l'acier et l'aluminium européens en 2025 ?",c:["10%","15%","25%","35%"],a:[2],m:false,e:"L'administration Trump a imposé 25% de droits de douane sur l'acier et l'aluminium importés d'Europe."},
+  {t:"commerce",q:"Quel taux maximal l'UE a-t-elle imposé sur les VE chinois en juillet 2024 ?",c:["15%","25%","35%","45%"],a:[3],m:false,e:"L'UE a imposé des droits compensateurs jusqu'à 45% sur les VE chinois en réponse aux subventions chinoises."},
+  {t:"commerce",q:"Qu'est-ce que le CBAM ?",c:["Un système de quotas carbone interne","Un mécanisme imposant un prix carbone sur certaines importations hors UE","Une taxe sur les transports","Un fonds pour la transition énergétique"],a:[1],m:false,e:"Le CBAM oblige les importateurs de produits carbonés à acheter des certificats carbone. Plein régime en 2026."},
+  {t:"commerce",q:"Quand l'accord UE-Mercosur a-t-il été finalisé ?",c:["Juin 2019","Décembre 2022","Décembre 2024","Mars 2025"],a:[2],m:false,e:"L'accord UE-Mercosur a été finalisé en décembre 2024 après 25 ans de négociations."},
+  {t:"compet",q:"Qui a remis en septembre 2024 un rapport sur la compétitivité européenne ?",c:["Thomas Piketty","Mario Draghi","Enrico Letta","Paolo Gentiloni"],a:[1],m:false,e:"Mario Draghi a remis son rapport sur la compétitivité européenne en septembre 2024."},
+  {t:"compet",q:"Quel montant annuel le rapport Draghi préconise-t-il ?",c:["200 Md€","400 Md€","800 Md€","1 200 Md€"],a:[2],m:false,e:"Le rapport Draghi préconise 750-800 milliards € d'investissements supplémentaires par an."},
+  {t:"compet",q:"Quel est le budget du Chips Act européen (2023) ?",c:["10 Md€","23 Md€","43 Md€","100 Md€"],a:[2],m:false,e:"Le Chips Act (2023) vise à doubler la part de l'Europe en semi-conducteurs (10%→20% en 2030) avec 43 milliards €."},
+  {t:"compet",q:"Quel rapport d'avril 2024 proposait une '5e liberté' du marché unique ?",c:["Rapport Draghi","Rapport Letta","Rapport Macron","Rapport Barnier"],a:[1],m:false,e:"Le rapport Letta (avril 2024) proposait la libre circulation des connaissances, recherche et éducation comme 5e liberté."},
+  {t:"numerique",q:"Quand l'AI Act européen est-il entré en vigueur ?",c:["Janvier 2024","Août 2024","Décembre 2024","Mars 2025"],a:[1],m:false,e:"L'AI Act est entré en vigueur le 1er août 2024. Les interdictions de systèmes à risque inacceptable s'appliquent depuis février 2025."},
+  {t:"numerique",q:"Quelles entreprises sont désignées 'gatekeepers' au sens du DMA ?",c:["Apple, Google, Meta, Amazon, Microsoft, TikTok","Apple, Google, Meta, Amazon, Netflix, Spotify","Toutes les tech de plus de 10Md€ de CA","Les désignées par le PE"],a:[0],m:false,e:"Le DMA désigne 6 gatekeepers : Alphabet, Apple, Meta, Amazon, Microsoft et ByteDance (TikTok)."},
+  {t:"numerique",q:"Qu'est-ce que le DSA ?",c:["Une directive sur la signature électronique","Un règlement encadrant la responsabilité des plateformes et la modération des contenus","Une taxe sur les services numériques","Un accord avec les États-Unis"],a:[1],m:false,e:"Le DSA (août 2023) encadre la modération, impose la transparence algorithmique et renforce la protection des utilisateurs."},
+  {t:"numerique",q:"Quelle amende record a été infligée à Meta au titre du RGPD en 2023 ?",c:["400 M€","800 M€","1,2 Md€","2 Md€"],a:[2],m:false,e:"Meta a reçu une amende record de 1,2 milliard € en mai 2023 pour transfert illégal de données vers les États-Unis."},
+  {t:"energie",q:"Quel est l'objectif de la directive RED III pour 2030 ?",c:["32%","38%","42,5%","50%"],a:[2],m:false,e:"RED III (2023) fixe un objectif contraignant de 42,5% d'énergies renouvelables dans la consommation finale d'ici 2030."},
+  {t:"energie",q:"Qu'est-ce que REPowerEU ?",c:["Un programme de subventions aux ménages","Un plan pour réduire la dépendance au gaz russe et accélérer les renouvelables","Un mécanisme de solidarité énergétique","Un fonds pour le nucléaire"],a:[1],m:false,e:"REPowerEU (mai 2022) vise à mettre fin à la dépendance aux combustibles fossiles russes après l'invasion de l'Ukraine."},
+  {t:"energie",q:"Quel est l'objectif de neutralité carbone dans la loi européenne sur le climat ?",c:["2040","2045","2050","2060"],a:[2],m:false,e:"La loi européenne sur le climat (2021) impose la neutralité carbone de l'UE d'ici 2050."},
+  {t:"energie",q:"Quel dernier pays a rejoint la zone euro ?",c:["Bulgarie","Croatie","Roumanie","Slovénie"],a:[1],m:false,e:"La Croatie a rejoint la zone euro le 1er janvier 2023, devenant le 20e membre de l'union monétaire."},
+  {t:"geo",q:"Quel est le montant total des avoirs russes gelés en Europe depuis 2022 ?",c:["100 Md€","200 Md€","300 Md€","500 Md€"],a:[2],m:false,e:"Environ 300 milliards € d'avoirs russes sont gelés en Europe (dont 190Md€ chez Euroclear). Les intérêts vont à l'Ukraine."},
+  {t:"geo",q:"Quel programme de l'UE s'oppose aux 'routes de la soie' chinoises ?",c:["Plan Juncker","NextGenerationEU","Global Gateway","Invest EU"],a:[2],m:false,e:"Global Gateway (2021) : 300 milliards € d'investissements dans les infrastructures mondiales, alternative aux Routes de la Soie."},
+  {t:"geo",q:"Quelle crise politique a secoué la Géorgie en 2024-2025 ?",c:["Un coup d'État militaire","Manifestations pro-UE après la suspension du processus d'adhésion par le gouvernement","Un conflit frontalier","Une crise économique"],a:[1],m:false,e:"Des millions de Géorgiens ont manifesté après que le gouvernement a suspendu les négociations d'adhésion jusqu'en 2028."},
+  {t:"geo",q:"Quel est l'impact du retour de Trump sur la défense européenne ?",c:["Aucun impact","Accélération du réarmement européen face aux doutes sur les garanties américaines","Réduction des budgets de défense européens","Retrait européen de l'OTAN"],a:[1],m:false,e:"Le retour de Trump (janvier 2025) a accéléré les discussions sur l'autonomie stratégique et poussé à augmenter les budgets défense."},
+];
+
+function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function getQuestions(themeId,count=15){const pool=themeId==="all"?BANK:BANK.filter(q=>q.t===themeId);return shuffle(pool).slice(0,Math.min(count,pool.length));}
+function getLevel(xp){return[...LEVELS].reverse().find(l=>xp>=l.min)||LEVELS[0];}
+
+// ── FIREBASE HELPERS ─────────────────────────────────────────────────────────
+async function createAccount(pseudo, password) {
+  const {auth,db,createUserWithEmailAndPassword,updateProfile,doc,setDoc} = window.__firebase;
+  const email = pseudo.toLowerCase().replace(/\s+/g,'') + "@eu-mojtaba.app";
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  await updateProfile(cred.user, {displayName: pseudo});
+  await setDoc(doc(db,"users",cred.user.uid), {
+    pseudo, xp:0, streak:0, lastPlayed:null, badges:[], totalCorrect:0,
+    totalAnswered:0, bestStreak:0, hasSpeed:false, history:[], createdAt: new Date().toISOString()
+  });
+  return cred.user;
+}
+
+async function loginAccount(pseudo, password) {
+  const {auth,signInWithEmailAndPassword} = window.__firebase;
+  const email = pseudo.toLowerCase().replace(/\s+/g,'') + "@eu-mojtaba.app";
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  return cred.user;
+}
+
+async function getUserData(uid) {
+  const {db,doc,getDoc} = window.__firebase;
+  const snap = await getDoc(doc(db,"users",uid));
+  return snap.exists() ? snap.data() : null;
+}
+
+async function saveUserData(uid, updates) {
+  const {db,doc,updateDoc} = window.__firebase;
+  await updateDoc(doc(db,"users",uid), updates);
+}
+
+async function getLeaderboard() {
+  const {db,collection,query,orderBy,limit,getDocs} = window.__firebase;
+  const q = query(collection(db,"users"), orderBy("xp","desc"), limit(10));
+  const snap = await getDocs(q);
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+
+// ── SMALL COMPONENTS ──────────────────────────────────────────────────────────
+function XPBar({xp}){
+  const lvl=getLevel(xp);const next=LEVELS[LEVELS.indexOf(lvl)+1];
+  const pct=next?Math.min(100,((xp-lvl.min)/(next.min-lvl.min))*100):100;
+  return(<div style={{background:"#ffffff15",borderRadius:12,padding:".6rem 1rem"}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:".7rem",color:"#fff",marginBottom:4,opacity:.8}}><span>{lvl.emoji} {lvl.title}</span><span>{xp} XP</span></div>
+    <div style={{background:"#ffffff20",borderRadius:99,height:8}}><div style={{background:"linear-gradient(90deg,#fbbf24,#f59e0b)",height:"100%",borderRadius:99,width:`${pct}%`,transition:"width .8s",boxShadow:"0 0 8px #fbbf2488"}}/></div>
+  </div>);
+}
+
+function Particle({x,y,icon,onDone}){
+  const [pos,setPos]=useState({x,y,op:1,sc:1});
+  useEffect(()=>{const vy=-(Math.random()*3+2),vx=(Math.random()-.5)*4;let f=0;const id=setInterval(()=>{f++;setPos(p=>({x:p.x+vx,y:p.y+vy,op:Math.max(0,1-f/40),sc:Math.max(0,1-f/50)}));if(f>40){clearInterval(id);onDone();}},16);return()=>clearInterval(id);},[]);
+  return <div style={{position:"fixed",left:pos.x,top:pos.y,fontSize:"1.2rem",opacity:pos.op,transform:`scale(${pos.sc})`,pointerEvents:"none",zIndex:9999}}>{icon}</div>;
+}
+
+function Toast({msg,type,onDone}){
+  useEffect(()=>{const t=setTimeout(onDone,2500);return()=>clearTimeout(t);},[]);
+  const bg=type==="good"?"#10b981":type==="bad"?"#ef4444":"#6366f1";
+  return <div style={{position:"fixed",top:80,left:"50%",transform:"translateX(-50%)",background:bg,color:"#fff",padding:".7rem 1.5rem",borderRadius:99,fontWeight:700,fontSize:".9rem",zIndex:9999,boxShadow:"0 8px 24px #0008",animation:"toastIn .3s ease",whiteSpace:"nowrap"}}>{msg}</div>;
+}
+
+function Input({label,type="text",value,onChange,placeholder}){
+  return(<div style={{marginBottom:"1rem"}}>
+    {label&&<div style={{fontSize:".78rem",color:"#94a3b8",marginBottom:".4rem",fontWeight:600}}>{label}</div>}
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      style={{width:"100%",background:"#ffffff0d",border:"1px solid #ffffff15",borderRadius:12,padding:".85rem 1rem",color:"#fff",fontSize:"1rem",outline:"none",fontFamily:"inherit"}}/>
+  </div>);
+}
+
+// ── AUTH SCREEN ───────────────────────────────────────────────────────────────
+function AuthScreen({onLogin}) {
+  const [mode,setMode] = useState("login"); // login | register
+  const [pseudo,setPseudo] = useState("");
+  const [password,setPassword] = useState("");
+  const [error,setError] = useState("");
+  const [loading,setLoading] = useState(false);
+
+  const handle = async () => {
+    if(!pseudo.trim()||!password.trim()){setError("Remplis tous les champs !");return;}
+    if(password.length<6){setError("Mot de passe : 6 caractères minimum");return;}
+    setLoading(true);setError("");
+    try {
+      let user;
+      if(mode==="register") user = await createAccount(pseudo.trim(), password);
+      else user = await loginAccount(pseudo.trim(), password);
+      const data = await getUserData(user.uid);
+      onLogin(user, data);
+    } catch(e) {
+      if(e.code==="auth/user-not-found"||e.code==="auth/wrong-password"||e.code==="auth/invalid-credential") setError("Pseudo ou mot de passe incorrect");
+      else if(e.code==="auth/email-already-in-use") setError("Ce pseudo est déjà pris !");
+      else setError("Erreur : " + e.message);
+    }
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"1.5rem"}}>
+      <div style={{width:"100%",maxWidth:380}}>
+        <div style={{textAlign:"center",marginBottom:"2rem"}}>
+          <div style={{fontSize:"3.5rem",marginBottom:".5rem"}}>🇪🇺</div>
+          <h1 style={{fontSize:"2rem",fontWeight:900,margin:0,background:"linear-gradient(135deg,#6366f1,#a78bfa,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>EU with Mojtaba</h1>
+          <p style={{color:"#94a3b8",fontSize:".78rem",marginTop:".3rem"}}>Révision SAEO 2026 · Gamifié</p>
+        </div>
+
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#1e293b)",borderRadius:24,padding:"2rem",border:"1px solid #6366f122"}}>
+          <div style={{display:"flex",background:"#ffffff0d",borderRadius:12,marginBottom:"1.5rem",padding:".2rem"}}>
+            {["login","register"].map(m=>(
+              <button key={m} onClick={()=>{setMode(m);setError("");}}
+                style={{flex:1,background:mode===m?"linear-gradient(135deg,#6366f1,#8b5cf6)":"none",border:"none",borderRadius:10,padding:".6rem",color:"#fff",fontWeight:700,fontSize:".85rem",cursor:"pointer",transition:"all .2s",fontFamily:"inherit"}}>
+                {m==="login"?"🔑 Connexion":"✨ S'inscrire"}
+              </button>
+            ))}
+          </div>
+
+          <Input label="Pseudo" value={pseudo} onChange={setPseudo} placeholder="Ton pseudo..."/>
+          <Input label="Mot de passe" type="password" value={password} onChange={setPassword} placeholder="••••••"/>
+
+          {error&&<div style={{background:"#ef444422",border:"1px solid #ef4444",borderRadius:10,padding:".7rem 1rem",fontSize:".82rem",color:"#f87171",marginBottom:"1rem"}}>{error}</div>}
+
+          <button onClick={handle} disabled={loading}
+            style={{width:"100%",background:loading?"#4f46e5aa":"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:14,padding:"1rem",color:"#fff",fontWeight:800,fontSize:"1rem",cursor:loading?"not-allowed":"pointer",fontFamily:"inherit",marginTop:".5rem"}}>
+            {loading?<span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⚙️</span>:mode==="login"?"Se connecter →":"Créer mon compte →"}
+          </button>
+
+          {mode==="login"&&(
+            <p style={{textAlign:"center",color:"#475569",fontSize:".75rem",marginTop:"1rem"}}>
+              Pas encore de compte ? <button onClick={()=>setMode("register")} style={{background:"none",border:"none",color:"#818cf8",cursor:"pointer",fontWeight:700,fontSize:".75rem",fontFamily:"inherit"}}>S'inscrire</button>
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+function App() {
+  const [firebaseReady, setFirebaseReady] = useState(!!window.__firebaseReady);
+  const [authUser, setAuthUser] = useState(null);
+  const [ud, setUd] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const [screen,setScreen] = useState("home");
+  const [selTheme,setSelTheme] = useState(null);
+  const [questions,setQuestions] = useState([]);
+  const [curQ,setCurQ] = useState(0);
+  const [sel,setSel] = useState([]);
+  const [confirmed,setConfirmed] = useState(false);
+  const [timeLeft,setTimeLeft] = useState(TIMER);
+  const [timerActive,setTimerActive] = useState(false);
+  const [sessXP,setSessXP] = useState(0);
+  const [sessOk,setSessOk] = useState(0);
+  const [particles,setParticles] = useState([]);
+  const [toasts,setToasts] = useState([]);
+  const [combo,setCombo] = useState(0);
+  const [maxCombo,setMaxCombo] = useState(0);
+  const [allAns,setAllAns] = useState([]);
+  const [badgeModal,setBadgeModal] = useState(null);
+  const [qStart,setQStart] = useState(null);
+  const [reviewMode,setReviewMode] = useState(false);
+  const [showThemes,setShowThemes] = useState(false);
+  const [leaderboardData,setLeaderboardData] = useState([]);
+  const timerRef = useRef(null);
+
+  // Wait for Firebase
+  useEffect(()=>{
+    if(window.__firebaseReady){ setFirebaseReady(true); return; }
+    window.addEventListener('firebase-ready',()=>setFirebaseReady(true));
+  },[]);
+
+  // Auth state
+  useEffect(()=>{
+    if(!firebaseReady) return;
+    const {auth,onAuthStateChanged} = window.__firebase;
+    const unsub = onAuthStateChanged(auth, async user => {
+      if(user){
+        setAuthUser(user);
+        const data = await getUserData(user.uid);
+        setUd(data||{xp:0,streak:0,lastPlayed:null,badges:[],totalCorrect:0,totalAnswered:0,bestStreak:0,hasSpeed:false,history:[]});
+      } else {
+        setAuthUser(null); setUd(null);
+      }
+      setAuthLoading(false);
+    });
+    return unsub;
+  },[firebaseReady]);
+
+  const toast = (msg,type)=>setToasts(t=>[...t,{msg,type,id:Date.now()+Math.random()}]);
+  const spawn = icons=>{const cx=window.innerWidth/2,cy=window.innerHeight/2;setParticles(p=>[...p,...icons.map((e,i)=>({id:Date.now()+i,x:cx+(Math.random()-.5)*200,y:cy+(Math.random()-.5)*100,icon:e}))]);};
+
+  const saveCloud = useCallback(async(updates)=>{
+    if(!authUser) return;
+    setUd(p=>{const n={...p,...updates};return n;});
+    try{ await saveUserData(authUser.uid, updates); }catch(e){ console.error(e); }
+  },[authUser]);
+
+  const checkBadges = useCallback(async(data)=>{
+    if(!authUser) return;
+    const earned=BADGES.filter(b=>!data.badges.includes(b.id)&&b.check(data));
+    if(earned.length){
+      const nb=[...data.badges,...earned.map(b=>b.id)];
+      setUd(p=>({...p,badges:nb}));
+      await saveUserData(authUser.uid,{badges:nb});
+      setBadgeModal(earned[0]);spawn(["🏅","✨","⭐","🎉"]);
+    }
+  },[authUser]);
+
+  // Timer
+  useEffect(()=>{
+    if(timerActive&&!confirmed){
+      timerRef.current=setInterval(()=>{
+        setTimeLeft(t=>{if(t<=1){clearInterval(timerRef.current);setTimerActive(false);commitAnswer(true);return 0;}return t-1;});
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[timerActive,confirmed]);
+
+  const commitAnswer = useCallback((timeout=false)=>{
+    if(confirmed)return;
+    clearInterval(timerRef.current);setTimerActive(false);setConfirmed(true);
+    setAllAns(prev=>{
+      const q=questions[curQ];if(!q)return prev;
+      const ua=timeout?[]:sel;
+      const correct=q.a;
+      const elapsed=(Date.now()-qStart)/1000;
+      const isOk=ua.length>0&&correct.every(a=>ua.includes(a))&&ua.every(a=>correct.includes(a));
+      const isSpeed=elapsed<5&&!timeout;
+      if(isOk){
+        setCombo(c=>{
+          const nc=c+1;setMaxCombo(m=>Math.max(m,nc));
+          const bonus=nc>=3?Math.floor(XP_OK*.5):0;const earned=XP_OK+bonus;
+          setSessXP(s=>s+earned);setSessOk(s=>s+1);
+          setUd(p=>{
+            const nx={...p,xp:(p.xp||0)+earned,totalCorrect:(p.totalCorrect||0)+1,totalAnswered:(p.totalAnswered||0)+1};
+            if(isSpeed)nx.hasSpeed=true;
+            if(authUser) saveUserData(authUser.uid,{xp:nx.xp,totalCorrect:nx.totalCorrect,totalAnswered:nx.totalAnswered,...(isSpeed?{hasSpeed:true}:{})});
+            checkBadges(nx);
+            return nx;
+          });
+          if(nc>=3){spawn(["⭐","✨","💫","🔥"]);toast(`🔥 Combo x${nc}! +${bonus}XP bonus!`,"good");}
+          else{spawn(["✅","⭐"]);toast(`+${earned} XP${isSpeed?" ⚡ Rapide!":""}`, "good");}
+          return nc;
+        });
+      } else {
+        setCombo(0);
+        setUd(p=>{const nx={...p,totalAnswered:(p.totalAnswered||0)+1};if(authUser)saveUserData(authUser.uid,{totalAnswered:nx.totalAnswered});return nx;});
+        if(timeout){spawn(["⏰"]);toast("⏰ Temps écoulé !","bad");}
+        else if(ua.length>0){spawn(["❌"]);toast("Incorrect…","bad");}
+        else toast("Sans réponse…","bad");
+      }
+      return [...prev,{q,ua,correct,status:isOk?"correct":ua.length===0?"skipped":"wrong"}];
+    });
+  },[confirmed,sel,questions,curQ,qStart,checkBadges,authUser]);
+
+  const startQuiz = useCallback(async(themeId)=>{
+    setSelTheme(themeId);
+    const qs=getQuestions(themeId,15);
+    setQuestions(qs);setCurQ(0);setSel([]);setConfirmed(false);
+    setTimeLeft(TIMER);setTimerActive(true);
+    setSessXP(0);setSessOk(0);setCombo(0);setMaxCombo(0);
+    setAllAns([]);setReviewMode(false);setQStart(Date.now());
+    setScreen("quiz");setShowThemes(false);
+    if(authUser&&ud){
+      const today=new Date().toDateString(),last=ud.lastPlayed;
+      const yesterday=new Date(Date.now()-86400000).toDateString();
+      if(last!==today){
+        const ns=last===yesterday?(ud.streak||0)+1:1;
+        const bs=Math.max(ns,ud.bestStreak||0);
+        await saveUserData(authUser.uid,{lastPlayed:today,streak:ns,bestStreak:bs});
+        setUd(p=>({...p,lastPlayed:today,streak:ns,bestStreak:bs}));
+        if(ns>1)toast(`🔥 Streak ${ns} jours !`,"good");
+      }
+    }
+  },[authUser,ud]);
+
+  const endSession = useCallback(async(sessCorrectFinal, sessXPFinal, answers)=>{
+    if(!authUser||!ud) return;
+    const sessionRecord = {
+      date: new Date().toISOString().split('T')[0],
+      theme: selTheme,
+      correct: sessCorrectFinal,
+      total: questions.length,
+      xp: sessXPFinal
+    };
+    const history = [...(ud.history||[]), sessionRecord].slice(-50);
+    await saveUserData(authUser.uid, {history});
+    setUd(p=>({...p,history}));
+  },[authUser,ud,selTheme,questions]);
+
+  const handleNext = ()=>{
+    if(curQ+1>=questions.length){
+      setScreen("result");
+      endSession(sessOk, sessXP, allAns);
+    } else {
+      setCurQ(c=>c+1);setSel([]);setConfirmed(false);setTimeLeft(TIMER);setTimerActive(true);setQStart(Date.now());
+    }
+  };
+
+  const handleLogout = async()=>{
+    clearInterval(timerRef.current);
+    await window.__firebase.signOut(window.__firebase.auth);
+    setScreen("home");
+  };
+
+  const loadLeaderboard = async()=>{
+    try{const lb=await getLeaderboard();setLeaderboardData(lb);}catch(e){console.error(e);}
+  };
+
+  // ── LOADING ──
+  if(!firebaseReady||authLoading) return (
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"1rem"}}>
+      <div style={{fontSize:"3rem",animation:"spin 1s linear infinite"}}>🇪🇺</div>
+      <div style={{color:"#94a3b8",fontSize:".9rem"}}>Chargement…</div>
+    </div>
+  );
+
+  // ── NOT CONFIGURED ──
+  if(firebaseReady&&window.__firebase&&window.__firebase.auth?.app?.options?.apiKey==="REMPLACE_PAR_TA_CLE") return (
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2rem",textAlign:"center"}}>
+      <div style={{fontSize:"3rem",marginBottom:"1rem"}}>⚙️</div>
+      <h2 style={{color:"#f87171",marginBottom:"1rem"}}>Firebase non configuré</h2>
+      <p style={{color:"#94a3b8",fontSize:".85rem",maxWidth:400,lineHeight:1.6}}>
+        Ouvre le fichier <strong style={{color:"#fff"}}>index.html</strong> et remplace les valeurs Firebase par les tiennes.<br/><br/>
+        Consulte le <strong style={{color:"#a78bfa"}}>README.md</strong> pour les instructions détaillées.
+      </p>
+    </div>
+  );
+
+  // ── AUTH SCREEN ──
+  if(!authUser) return <AuthScreen onLogin={(user,data)=>{setAuthUser(user);setUd(data);}} />;
+
+  const q=questions[curQ];
+  const th=THEMES.find(t=>t.id===selTheme)||{color:"#6366f1",bg:"#1e1b4b",emoji:"🇪🇺",label:"Tous les thèmes"};
+  const timerPct=(timeLeft/TIMER)*100;
+  const timerColor=timeLeft>10?"#10b981":timeLeft>5?"#f59e0b":"#ef4444";
+  const S={minHeight:"100vh",background:"#0f172a",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",color:"#fff"};
+  const xp=ud?.xp||0;
+
+  // ── QUIZ ──
+  if(screen==="quiz"&&q){
+    const progress=(curQ/questions.length)*100;
+    return(
+      <div style={{...S,background:`linear-gradient(135deg,${th.bg},#0f172a)`}}>
+        <div style={{maxWidth:480,margin:"0 auto",padding:"1rem"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:".8rem"}}>
+            <button onClick={()=>{clearInterval(timerRef.current);setScreen("home");}} style={{background:"#ffffff15",border:"none",color:"#fff",borderRadius:99,padding:".4rem .9rem",cursor:"pointer",fontSize:".85rem"}}>✕</button>
+            <div style={{display:"flex",gap:".5rem",alignItems:"center"}}>
+              {combo>=2&&<div style={{background:"#ef444422",border:"1px solid #ef4444",borderRadius:99,padding:".2rem .7rem",fontSize:".72rem",fontWeight:700,color:"#ef4444"}}>🔥 x{combo}</div>}
+              <div style={{background:"#fbbf2422",border:"1px solid #fbbf24",borderRadius:99,padding:".2rem .7rem",fontSize:".72rem",fontWeight:700,color:"#fbbf24"}}>⭐ {sessXP} XP</div>
+            </div>
+            <div style={{fontSize:".82rem",color:"#94a3b8"}}>{curQ+1}/{questions.length}</div>
+          </div>
+          <div style={{background:"#ffffff15",borderRadius:99,height:6,marginBottom:".6rem"}}><div style={{background:th.color,height:"100%",borderRadius:99,width:`${progress}%`,transition:"width .4s"}}/></div>
+          <div style={{background:"#ffffff10",borderRadius:99,height:8,marginBottom:".3rem",overflow:"hidden"}}><div style={{background:timerColor,height:"100%",borderRadius:99,width:`${timerPct}%`,transition:"width 1s linear",boxShadow:`0 0 8px ${timerColor}88`}}/></div>
+          <div style={{textAlign:"center",fontSize:".72rem",color:timerColor,marginBottom:".8rem",fontWeight:700}}>⏱ {timeLeft}s</div>
+          <div style={{background:"#ffffff0d",borderRadius:20,padding:"1.2rem",marginBottom:".8rem",border:`1px solid ${th.color}44`}}>
+            <div style={{display:"flex",gap:".5rem",marginBottom:".8rem",flexWrap:"wrap"}}>
+              <span style={{fontSize:".65rem",background:th.color+"33",color:th.color,padding:".2rem .6rem",borderRadius:99,fontWeight:700}}>{th.emoji} {th.label}</span>
+              {q.m&&<span style={{fontSize:".65rem",background:"#a855f733",color:"#c084fc",padding:".2rem .6rem",borderRadius:99,fontWeight:700}}>Plusieurs réponses</span>}
+            </div>
+            <div style={{fontSize:"1rem",fontWeight:700,lineHeight:1.55}}>{curQ+1}. {q.q}</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:".55rem",marginBottom:".8rem"}}>
+            {q.c.map((c,ci)=>{
+              let bg="#ffffff0d",bd=`1px solid #ffffff15`,cl="#e2e8f0",fw=500;
+              if(confirmed){if(q.a.includes(ci)){bg="#10b98122";bd="2px solid #10b981";cl="#10b981";fw=700;}else if(sel.includes(ci)){bg="#ef444422";bd="2px solid #ef4444";cl="#ef4444";fw=700;}}
+              else if(sel.includes(ci)){bg=`${th.color}33`;bd=`2px solid ${th.color}`;cl="#fff";fw=700;}
+              return(<button key={ci} onClick={()=>{if(confirmed)return;setSel(prev=>q.m?prev.includes(ci)?prev.filter(x=>x!==ci):[...prev,ci]:prev.includes(ci)?[]:[ci]);}}
+                style={{background:bg,border:bd,borderRadius:14,padding:".85rem 1rem",cursor:confirmed?"default":"pointer",textAlign:"left",color:cl,fontSize:".9rem",fontWeight:fw,display:"flex",alignItems:"center",gap:".8rem",transition:"all .2s",fontFamily:"inherit"}}>
+                <span style={{background:"#ffffff15",borderRadius:8,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".75rem",fontWeight:800,flexShrink:0}}>{String.fromCharCode(65+ci)}</span>
+                <span style={{lineHeight:1.4}}>{c}</span>
+                {confirmed&&q.a.includes(ci)&&<span style={{marginLeft:"auto"}}>✓</span>}
+                {confirmed&&sel.includes(ci)&&!q.a.includes(ci)&&<span style={{marginLeft:"auto"}}>✗</span>}
+              </button>);
+            })}
+          </div>
+          {confirmed&&<div style={{background:"#1e3a5f",borderRadius:14,padding:"1rem",marginBottom:".8rem",border:"1px solid #3b82f644",fontSize:".83rem",lineHeight:1.6,color:"#93c5fd"}}>💡 {q.e}</div>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:".5rem"}}>
+            <div style={{display:"flex",gap:".3rem"}}>
+              {["+0,2","−0,1","−0,05"].map((s,i)=><span key={i} style={{fontSize:".58rem",color:"#475569",background:"#0d1117",padding:".15rem .4rem",borderRadius:5,border:"1px solid #1e293b"}}>{["✅","❌","⬜"][i]} {s}</span>)}
+            </div>
+            {!confirmed
+              ?<button onClick={()=>commitAnswer(false)} style={{background:sel.length>0?`linear-gradient(135deg,${th.color},${th.color}aa)`:"#ffffff15",border:"none",borderRadius:14,padding:".85rem 1.6rem",color:"#fff",fontWeight:800,fontSize:"1rem",cursor:"pointer",fontFamily:"inherit"}}>{sel.length>0?"Valider ✓":"Passer →"}</button>
+              :<button onClick={handleNext} style={{background:`linear-gradient(135deg,${th.color},${th.color}aa)`,border:"none",borderRadius:14,padding:".85rem 1.6rem",color:"#fff",fontWeight:800,fontSize:"1rem",cursor:"pointer",fontFamily:"inherit"}}>{curQ+1>=questions.length?"Résultats 🏆":"Suivante →"}</button>
+            }
+          </div>
+        </div>
+        {particles.map(p=><Particle key={p.id} x={p.x} y={p.y} icon={p.icon} onDone={()=>setParticles(ps=>ps.filter(x=>x.id!==p.id))}/>)}
+        {toasts.map(t=><Toast key={t.id} msg={t.msg} type={t.type} onDone={()=>setToasts(ts=>ts.filter(x=>x.id!==t.id))}/>)}
+      </div>
+    );
+  }
+
+  // ── RESULT ──
+  if(screen==="result"){
+    const acc=allAns.length?Math.round((allAns.filter(a=>a.status==="correct").length/allAns.length)*100):0;
+    return(
+      <div style={S}>
+        <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem"}}>
+          {!reviewMode?(
+            <>
+              <div style={{textAlign:"center",marginBottom:"2rem"}}>
+                <div style={{fontSize:"4rem",marginBottom:".5rem"}}>{acc>=80?"🏆":acc>=60?"🎯":"📚"}</div>
+                <h2 style={{fontSize:"2rem",fontWeight:800,margin:0}}>Session terminée !</h2>
+                <div style={{color:"#94a3b8",marginTop:".3rem"}}>{th.emoji} {selTheme==="all"?"Tous les thèmes":th.label}</div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".8rem",marginBottom:"1.5rem"}}>
+                {[{l:"XP gagnés",v:`+${sessXP}`,e:"⭐",c:"#fbbf24"},{l:"Correctes",v:`${sessOk}/${questions.length}`,e:"✅",c:"#10b981"},{l:"Précision",v:`${acc}%`,e:"🎯",c:"#6366f1"},{l:"Combo max",v:`x${maxCombo}`,e:"🔥",c:"#ef4444"}].map(s=>(
+                  <div key={s.l} style={{background:"#ffffff0d",borderRadius:16,padding:"1rem",textAlign:"center",border:"1px solid #ffffff10"}}>
+                    <div style={{fontSize:"1.8rem"}}>{s.e}</div><div style={{fontSize:"1.5rem",fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:".7rem",color:"#94a3b8"}}>{s.l}</div>
+                  </div>))}
+              </div>
+              <div style={{background:"#ffffff0d",borderRadius:16,padding:"1rem",marginBottom:"1.5rem",border:"1px solid #ffffff10"}}><XPBar xp={xp}/></div>
+              <div style={{display:"flex",flexDirection:"column",gap:".7rem"}}>
+                <button onClick={()=>setReviewMode(true)} style={{background:"#ffffff15",border:"none",borderRadius:16,padding:"1rem",color:"#fff",fontWeight:700,fontSize:".95rem",cursor:"pointer",fontFamily:"inherit"}}>📋 Revoir les réponses</button>
+                <button onClick={()=>startQuiz(selTheme)} style={{background:`linear-gradient(135deg,${th.color},${th.color}aa)`,border:"none",borderRadius:16,padding:"1rem",color:"#fff",fontWeight:800,fontSize:"1rem",cursor:"pointer",fontFamily:"inherit"}}>🔄 Rejouer</button>
+                <button onClick={()=>setScreen("home")} style={{background:"#ffffff0d",border:"none",borderRadius:16,padding:"1rem",color:"#94a3b8",fontWeight:700,fontSize:".95rem",cursor:"pointer",fontFamily:"inherit"}}>🏠 Accueil</button>
+              </div>
+            </>
+          ):(
+            <>
+              <button onClick={()=>setReviewMode(false)} style={{background:"none",border:"none",color:"#818cf8",cursor:"pointer",marginBottom:"1.5rem",fontSize:".9rem",fontFamily:"inherit"}}>← Retour</button>
+              <h2 style={{fontWeight:700,marginBottom:"1.5rem"}}>Correction détaillée</h2>
+              {allAns.map((a,i)=>(
+                <div key={i} style={{background:"#161b22",borderRadius:14,padding:"1.2rem",marginBottom:"1rem",borderLeft:`4px solid ${a.status==="correct"?"#10b981":a.status==="wrong"?"#ef4444":"#6b7280"}`}}>
+                  <div style={{fontWeight:700,fontSize:".9rem",marginBottom:".8rem"}}>{i+1}. {a.q.q}</div>
+                  {a.q.c.map((c,ci)=>(
+                    <div key={ci} style={{padding:".35rem .7rem",borderRadius:8,marginBottom:".3rem",fontSize:".82rem",background:a.correct.includes(ci)?"#0d2b1d":a.ua.includes(ci)&&!a.correct.includes(ci)?"#2d1515":"#0d1117",color:a.correct.includes(ci)?"#10b981":a.ua.includes(ci)&&!a.correct.includes(ci)?"#ef4444":"#6b7280"}}>
+                      {a.correct.includes(ci)?"✓":a.ua.includes(ci)?"✗":"  "} {String.fromCharCode(65+ci)}. {c}
+                    </div>))}
+                  <div style={{marginTop:".8rem",background:"#1c2d4a",borderRadius:8,padding:".7rem",fontSize:".8rem",color:"#93c5fd"}}>💡 {a.q.e}</div>
+                </div>))}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── LEADERBOARD ──
+  if(screen==="leaderboard") return(
+    <div style={S}>
+      <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"2rem"}}>
+          <button onClick={()=>setScreen("home")} style={{background:"#ffffff15",border:"none",color:"#fff",borderRadius:99,padding:".5rem 1rem",cursor:"pointer",fontFamily:"inherit"}}>←</button>
+          <h2 style={{margin:0}}>🏆 Classement</h2>
+          <button onClick={loadLeaderboard} style={{marginLeft:"auto",background:"#ffffff0d",border:"none",color:"#94a3b8",borderRadius:99,padding:".4rem .8rem",cursor:"pointer",fontSize:".8rem",fontFamily:"inherit"}}>↻ Actualiser</button>
+        </div>
+        {leaderboardData.length===0&&<div style={{textAlign:"center",color:"#475569",padding:"2rem"}}>Clique sur ↻ pour charger</div>}
+        {leaderboardData.map((p,i)=>{
+          const isMe=p.id===authUser?.uid;
+          return(
+            <div key={p.id} style={{background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"#ffffff0d",border:isMe?"2px solid #6366f1":"1px solid #ffffff10",borderRadius:16,padding:"1rem 1.2rem",marginBottom:".7rem",display:"flex",alignItems:"center",gap:"1rem"}}>
+              <div style={{fontSize:"1.4rem",width:36,textAlign:"center"}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700}}>{p.pseudo||"Anonyme"}{isMe?" (toi)":""}</div>
+                <div style={{fontSize:".72rem",color:"#94a3b8"}}>{p.xp||0} XP · {p.totalCorrect||0} correctes</div>
+              </div>
+              <div style={{fontSize:"1.3rem"}}>{getLevel(p.xp||0).emoji}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── STATS SCREEN ──
+  if(screen==="stats") return(
+    <div style={S}>
+      <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"2rem"}}>
+          <button onClick={()=>setScreen("home")} style={{background:"#ffffff15",border:"none",color:"#fff",borderRadius:99,padding:".5rem 1rem",cursor:"pointer",fontFamily:"inherit"}}>←</button>
+          <h2 style={{margin:0}}>📊 Mes stats</h2>
+        </div>
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#1e3a5f)",borderRadius:20,padding:"1.2rem",marginBottom:"1rem",border:"1px solid #6366f122"}}>
+          <div style={{fontWeight:700,fontSize:"1.1rem",marginBottom:"1rem"}}>👤 {authUser?.displayName}</div>
+          <XPBar xp={xp}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:".7rem",marginTop:"1rem"}}>
+            {[{l:"XP Total",v:xp,c:"#fbbf24"},{l:"Streak",v:`${ud?.streak||0}🔥`,c:"#ef4444"},{l:"Meilleur streak",v:`${ud?.bestStreak||0}🏆`,c:"#f59e0b"},{l:"Correctes",v:ud?.totalCorrect||0,c:"#10b981"},{l:"Répondues",v:ud?.totalAnswered||0,c:"#3b82f6"},{l:"Badges",v:(ud?.badges||[]).length,c:"#a855f7"}].map(s=>(
+              <div key={s.l} style={{background:"#ffffff0d",borderRadius:12,padding:".8rem",textAlign:"center"}}>
+                <div style={{fontSize:"1.2rem",fontWeight:800,color:s.c}}>{s.v}</div>
+                <div style={{fontSize:".6rem",color:"#94a3b8",marginTop:".2rem"}}>{s.l}</div>
+              </div>))}
+          </div>
+        </div>
+        <div style={{marginBottom:"1rem"}}>
+          <div style={{fontSize:".75rem",color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em",marginBottom:".6rem"}}>📅 Dernières sessions</div>
+          {(ud?.history||[]).slice(-8).reverse().map((h,i)=>{
+            const th2=THEMES.find(t=>t.id===h.theme)||{emoji:"🇪🇺",label:"Mix",color:"#6366f1"};
+            const acc=h.total?Math.round((h.correct/h.total)*100):0;
+            return(
+              <div key={i} style={{background:"#ffffff0d",borderRadius:12,padding:".8rem 1rem",marginBottom:".5rem",display:"flex",alignItems:"center",gap:"1rem",border:"1px solid #ffffff08"}}>
+                <div style={{fontSize:"1.3rem"}}>{th2.emoji}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:".82rem",fontWeight:600}}>{th2.label}</div>
+                  <div style={{fontSize:".68rem",color:"#475569"}}>{h.date}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:".85rem",fontWeight:700,color:acc>=70?"#10b981":"#ef4444"}}>{h.correct}/{h.total}</div>
+                  <div style={{fontSize:".65rem",color:"#fbbf24"}}>+{h.xp} XP</div>
+                </div>
+              </div>
+            );
+          })}
+          {!(ud?.history||[]).length&&<div style={{textAlign:"center",color:"#475569",padding:"1.5rem",fontSize:".85rem"}}>Joue ta première session pour voir tes stats !</div>}
+        </div>
+        <button onClick={handleLogout} style={{width:"100%",background:"#ef444415",border:"1px solid #ef444433",borderRadius:14,padding:".8rem",color:"#f87171",fontWeight:700,cursor:"pointer",fontFamily:"inherit",fontSize:".9rem"}}>
+          🚪 Se déconnecter
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── BADGES ──
+  if(screen==="badges") return(
+    <div style={S}>
+      <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"1rem",marginBottom:"2rem"}}>
+          <button onClick={()=>setScreen("home")} style={{background:"#ffffff15",border:"none",color:"#fff",borderRadius:99,padding:".5rem 1rem",cursor:"pointer",fontFamily:"inherit"}}>←</button>
+          <h2 style={{margin:0}}>🏅 Badges</h2>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:".8rem"}}>
+          {BADGES.map(b=>{const earned=(ud?.badges||[]).includes(b.id);return(
+            <div key={b.id} style={{background:earned?"linear-gradient(135deg,#1e3a5f,#1e1b4b)":"#ffffff08",border:`1px solid ${earned?"#3b82f6":"#ffffff10"}`,borderRadius:16,padding:"1rem",textAlign:"center",opacity:earned?1:.4}}>
+              <div style={{fontSize:"2rem",marginBottom:".3rem"}}>{b.emoji}</div>
+              <div style={{fontWeight:700,fontSize:".72rem"}}>{b.name}</div>
+              <div style={{fontSize:".62rem",color:"#94a3b8",marginTop:".2rem"}}>{b.desc}</div>
+              {earned&&<div style={{fontSize:".6rem",color:"#10b981",marginTop:".3rem"}}>✓ Obtenu</div>}
+            </div>
+          );})}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── HOME ──
+  return(
+    <div style={{...S,background:"linear-gradient(160deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)"}}>
+      {particles.map(p=><Particle key={p.id} x={p.x} y={p.y} icon={p.icon} onDone={()=>setParticles(ps=>ps.filter(x=>x.id!==p.id))}/>)}
+      {toasts.map(t=><Toast key={t.id} msg={t.msg} type={t.type} onDone={()=>setToasts(ts=>ts.filter(x=>x.id!==t.id))}/>)}
+      {badgeModal&&(
+        <div style={{position:"fixed",inset:0,background:"#000a",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}} onClick={()=>setBadgeModal(null)}>
+          <div style={{background:"linear-gradient(135deg,#1e1b4b,#1e3a5f)",border:"2px solid #6366f1",borderRadius:24,padding:"2.5rem",textAlign:"center",maxWidth:300,animation:"badgeIn .4s ease"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:"4rem",marginBottom:".5rem"}}>{badgeModal.emoji}</div>
+            <div style={{fontWeight:800,fontSize:"1.3rem",color:"#fbbf24"}}>Nouveau badge !</div>
+            <div style={{fontWeight:700,marginTop:".5rem"}}>{badgeModal.name}</div>
+            <div style={{color:"#94a3b8",fontSize:".85rem",marginTop:".3rem"}}>{badgeModal.desc}</div>
+            <button onClick={()=>setBadgeModal(null)} style={{marginTop:"1.5rem",background:"#6366f1",border:"none",borderRadius:99,padding:".7rem 2rem",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:".95rem",fontFamily:"inherit"}}>Super ! 🎉</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{maxWidth:480,margin:"0 auto",padding:"1.5rem"}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.2rem"}}>
+          <div>
+            <div style={{fontSize:".75rem",color:"#94a3b8"}}>Bonjour 👋</div>
+            <div style={{fontWeight:800,fontSize:"1.1rem"}}>{authUser?.displayName}</div>
+          </div>
+          <button onClick={()=>setScreen("stats")} style={{background:"#ffffff0d",border:"1px solid #ffffff15",borderRadius:99,padding:".4rem .9rem",color:"#94a3b8",cursor:"pointer",fontSize:".8rem",fontFamily:"inherit",fontWeight:600}}>👤 Mon profil</button>
+        </div>
+
+        {/* Hero */}
+        <div style={{textAlign:"center",marginBottom:"1.3rem"}}>
+          <div style={{fontSize:"3rem",marginBottom:".3rem"}}>🇪🇺</div>
+          <h1 style={{fontSize:"1.8rem",fontWeight:900,margin:0,background:"linear-gradient(135deg,#6366f1,#a78bfa,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>EU with Mojtaba</h1>
+          <p style={{color:"#94a3b8",fontSize:".75rem",margin:".2rem 0 0"}}>SAEO 2026 · {BANK.length} questions · Classement réel</p>
+        </div>
+
+        {/* Stats */}
+        <div style={{background:"linear-gradient(135deg,#1e1b4b,#1e3a5f)",borderRadius:20,padding:"1rem 1.2rem",marginBottom:"1.2rem",border:"1px solid #6366f122"}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:".8rem"}}>
+            {[{v:xp,l:"XP",c:"#fbbf24"},{v:`${ud?.streak||0}🔥`,l:"Streak",c:"#ef4444"},{v:ud?.totalCorrect||0,l:"Correctes",c:"#10b981"},{v:(ud?.badges||[]).length,l:"Badges",c:"#a855f7"}].map(s=>(
+              <div key={s.l} style={{textAlign:"center"}}>
+                <div style={{fontSize:"1.3rem",fontWeight:800,color:s.c}}>{s.v}</div>
+                <div style={{fontSize:".62rem",color:"#94a3b8"}}>{s.l}</div>
+              </div>))}
+          </div>
+          <XPBar xp={xp}/>
+        </div>
+
+        {/* BIG START */}
+        <button onClick={()=>startQuiz("all")} style={{width:"100%",background:"linear-gradient(135deg,#6366f1,#8b5cf6,#06b6d4)",border:"none",borderRadius:20,padding:"1.4rem",color:"#fff",fontWeight:900,fontSize:"1.35rem",cursor:"pointer",marginBottom:".8rem",animation:"glow 2s ease-in-out infinite",fontFamily:"inherit",letterSpacing:".02em",boxShadow:"0 8px 32px #6366f155"}}>
+          🚀 JOUER — Mix tous les thèmes
+        </button>
+
+        {/* Toggle themes */}
+        <button onClick={()=>setShowThemes(s=>!s)} style={{width:"100%",background:showThemes?"linear-gradient(135deg,#1e3a5f,#1e1b4b)":"#ffffff0d",border:`1px solid ${showThemes?"#3b82f6":"#ffffff15"}`,borderRadius:16,padding:".9rem",color:showThemes?"#93c5fd":"#94a3b8",fontWeight:700,fontSize:".95rem",cursor:"pointer",marginBottom:"1rem",fontFamily:"inherit",transition:"all .3s"}}>
+          {showThemes?"▲ Masquer les thèmes":"🎯 Choisir un thème spécifique ▼"}
+        </button>
+
+        {showThemes&&(
+          <>
+            <div style={{fontSize:".68rem",color:"#94a3b8",textTransform:"uppercase",letterSpacing:".1em",marginBottom:".6rem"}}>📚 Programme classique</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".6rem",marginBottom:"1rem"}}>
+              {THEMES.filter(t=>!t.actu).map((t,i)=>(
+                <button key={t.id} onClick={()=>startQuiz(t.id)} style={{background:`linear-gradient(135deg,${t.bg},#0f172a)`,border:`1px solid ${t.color}44`,borderRadius:16,padding:".9rem",cursor:"pointer",textAlign:"left",color:"#fff",fontFamily:"inherit",opacity:0,animation:`fadeUp .3s ${i*.04}s forwards`}}
+                  onTouchStart={e=>e.currentTarget.style.transform="scale(.96)"} onTouchEnd={e=>e.currentTarget.style.transform="scale(1)"}>
+                  <div style={{fontSize:"1.3rem",marginBottom:".25rem"}}>{t.emoji}</div>
+                  <div style={{fontWeight:700,fontSize:".78rem",lineHeight:1.3}}>{t.label}</div>
+                  <div style={{fontSize:".58rem",color:t.color,marginTop:".2rem"}}>{BANK.filter(q=>q.t===t.id).length} questions</div>
+                </button>))}
+            </div>
+            <div style={{fontSize:".68rem",color:"#f87171",textTransform:"uppercase",letterSpacing:".1em",marginBottom:".6rem",display:"flex",alignItems:"center",gap:".5rem"}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:"#ef4444",animation:"pulse 1s infinite"}}/>Actualité 2024-2025
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".6rem",marginBottom:"1rem"}}>
+              {THEMES.filter(t=>t.actu).map((t,i)=>(
+                <button key={t.id} onClick={()=>startQuiz(t.id)} style={{background:`linear-gradient(135deg,${t.bg},#0f172a)`,border:`1px solid ${t.color}66`,borderRadius:16,padding:".9rem",cursor:"pointer",textAlign:"left",color:"#fff",position:"relative",fontFamily:"inherit",opacity:0,animation:`fadeUp .3s ${i*.04+.2}s forwards`}}
+                  onTouchStart={e=>e.currentTarget.style.transform="scale(.96)"} onTouchEnd={e=>e.currentTarget.style.transform="scale(1)"}>
+                  <div style={{position:"absolute",top:6,right:7,background:"#ef4444",borderRadius:5,padding:".1rem .35rem",fontSize:".5rem",fontWeight:800}}>2025</div>
+                  <div style={{fontSize:"1.3rem",marginBottom:".25rem"}}>{t.emoji}</div>
+                  <div style={{fontWeight:700,fontSize:".78rem",lineHeight:1.3}}>{t.label}</div>
+                  <div style={{fontSize:".58rem",color:t.color,marginTop:".2rem"}}>{BANK.filter(q=>q.t===t.id).length} questions</div>
+                </button>))}
+            </div>
+          </>
+        )}
+
+        {/* Nav */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:".6rem",marginBottom:"2rem"}}>
+          <button onClick={()=>{setScreen("leaderboard");loadLeaderboard();}} style={{background:"linear-gradient(135deg,#f59e0b22,#f59e0b11)",border:"1px solid #f59e0b44",borderRadius:14,padding:".8rem .5rem",color:"#fbbf24",fontWeight:700,cursor:"pointer",fontSize:".8rem",fontFamily:"inherit"}}>🏆 Classement</button>
+          <button onClick={()=>setScreen("badges")} style={{background:"linear-gradient(135deg,#a855f722,#a855f711)",border:"1px solid #a855f744",borderRadius:14,padding:".8rem .5rem",color:"#c084fc",fontWeight:700,cursor:"pointer",fontSize:".8rem",fontFamily:"inherit"}}>🏅 Badges</button>
+          <button onClick={()=>setScreen("stats")} style={{background:"linear-gradient(135deg,#06b6d422,#06b6d411)",border:"1px solid #06b6d444",borderRadius:14,padding:".8rem .5rem",color:"#67e8f9",fontWeight:700,cursor:"pointer",fontSize:".8rem",fontFamily:"inherit"}}>📊 Stats</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+<script>
+if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
